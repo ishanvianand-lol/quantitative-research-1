@@ -69,7 +69,7 @@ def Hawkes_Process(parameters, events, T):
     intensity_sum = 0.0
 
     for i, ti in enumerate(events):
-        history = event_times[:i]
+        history = events[:i]
 
         lam = mu + alpha * np.sum(np.exp(-beta * (ti - history)))
         intensity_sum += np.log(lam)
