@@ -1,190 +1,186 @@
-📈 Hawkes–VPIN Market Microstructure Analyzer
-A Streamlit-based quantitative trading and market microstructure dashboard that combines:
+````markdown
+# Hawkes–VPIN Market Microstructure Dashboard
 
-Hawkes Self-Exciting Point Process for shock/event modeling
+A Streamlit dashboard to study how **order-flow toxicity (VPIN)** relates to **volatility shocks** and how those shocks **cluster in time** via a **Hawkes self-exciting process**, with technical indicators for price context.
 
-VPIN (Volume-Synchronized Probability of Informed Trading) for order-flow toxicity
+This project combines ideas from **market microstructure**, **stochastic point processes**, and **technical analysis** into a single interactive tool.
 
-Classical Technical Indicators (SMA, EMA, RSI, Bollinger Bands, ATR)
+---
 
-Candlestick + Volume + Momentum visual analytics
+## Installation
 
-This tool is designed to study how informed trading (VPIN) correlates with self-exciting price shocks (Hawkes) and how both interact with traditional technical signals.
+```bash
+pip install streamlit yfinance numpy pandas scipy matplotlib mplfinance
+```
+````
 
-This is not a simple TA dashboard — it is a microstructure + stochastic process + technical analysis fusion system.
+---
 
-🧠 Core Idea
-Markets do not move randomly. They move because:
+## Run
 
-Informed traders create toxic order flow → captured by VPIN
-
-This toxicity creates price shocks → detected via return volatility threshold
-
-Shocks are self-exciting (clustered in time) → modeled via Hawkes Process
-
-These events occur at meaningful technical levels → analyzed via TA indicators
-
-This dashboard proves and visualizes that relationship.
-
-⚙️ Features
-🔬 Hawkes Process Modeling
-
-Detects return shocks using volatility threshold
-
-Fits Hawkes parameters: μ, α, β
-
-Computes live intensity λ(t)
-
-Shows clustering of events and expected time to next shock
-
-Branching ratio (α/β) interpretation
-
-🧪 VPIN Toxicity Engine
-
-Implements full VPIN bucket logic from microstructure literature
-
-Adaptive bucket sizing based on average volume
-
-Toxicity thresholds (0.3, 0.5, 0.7)
-
-Correlates VPIN values with Hawkes shock events
-
-Intraday VPIN vs shock distribution
-
-📊 Technical Analysis Suite
-
-Candlestick chart with SMA20, SMA50, EMA12
-
-Bollinger Bands with squeeze detection
-
-RSI momentum panel with volume
-
-ATR volatility measure
-
-Automatic interpretation of trend, volatility, and momentum
-
-🔗 Cross-Analysis (unique part)
-
-VPIN distribution at shock vs non-shock periods
-
-VPIN vs Hawkes intensity scatter
-
-Shock locations on all charts
-
-Microstructure patterns by hour of day
-
-🏗️ Architecture
-ComponentPurposeyfinanceIntraday data (2m bars, 60 days)VPIN engineOrder flow imbalance bucketsShock detectorVolatility-scaled return thresholdHawkes fittingL-BFGS MLE for μ, α, βmplfinanceProfessional candlestick plottingStreamlitInteractive dashboard
-
-📦 Installation
-pip install streamlit yfinance numpy pandas matplotlib scipy mplfinance
-
-▶️ Run the App
+```bash
 streamlit run app.py
+```
 
-🖥️ Controls (Sidebar)
-ControlMeaningTicker SymbolAny Yahoo Finance symbol (e.g. ^GSPC, AAPL, TSLA)Shock Threshold (k)Multiplier on rolling volatility to define shockRolling WindowWindow for return volatilityVPIN Bucket VolumeVolume per bucket for toxicity calculation
+---
 
-📐 Mathematical Models
-Hawkes Process
-λ(t)=μ+α∑ti<te−β(t−ti)\lambda(t) = \mu + \alpha \sum\_{t_i < t} e^{-\beta (t - t_i)}λ(t)=μ+αti​<t∑​e−β(t−ti​)
+## Inputs (Sidebar)
 
-μ → baseline shock rate
+| Parameter           | Meaning                                           |
+| ------------------- | ------------------------------------------------- |
+| Ticker              | Any Yahoo Finance symbol                          |
+| Shock Threshold (k) | Multiplier on rolling volatility to define shocks |
+| Rolling Window      | Window for return volatility estimation           |
+| VPIN Bucket Volume  | Volume per bucket for VPIN computation            |
 
-α → excitation strength
+---
 
-β → decay rate
+## Data
 
-α/β → expected number of shocks triggered by each shock
+- 2-minute bars
+- Last 60 days
+- OHLCV from Yahoo Finance
 
-VPIN
-VPIN=∑∣Vbuy−Vsell∣Vbucket×NVPIN = \frac{\sum |V*{buy} - V*{sell}|}{V\_{bucket} \times N}VPIN=Vbucket​×N∑∣Vbuy​−Vsell​∣​
-Measures order flow toxicity from volume imbalance.
+---
 
-🧪 What This Dashboard Demonstrates
-You will observe:
+## Methodology
 
-VPIN rises before clusters of Hawkes shocks
+### 1. Return and Volatility
 
-Shocks occur at Bollinger extremes and MA levels
+Returns:
 
-RSI extremes + Hawkes spike → high reversal probability
+[
+r_t = \frac{P_t - P_{t-1}}{P_{t-1}}
+]
 
-Intraday open/close show highest toxicity and shock frequency
+Rolling volatility:
 
-Low VPIN periods correspond to liquidity provider dominance
+[
+\sigma_t = \text{StdDev}(r_{t-w}, \dots, r_t)
+]
 
-📊 Tabs Overview
-Tab 1 — Hawkes + VPIN Microstructure
+A **shock/event** is defined when:
 
-Price with shocks and scaled intensity
+[
+|r_t| > k \cdot \sigma_t
+]
 
-Inter-event time histogram
+---
 
-VPIN toxicity plot
+### 2. Hawkes Self-Exciting Process
 
-VPIN vs shocks statistical comparison
+Shock times are modeled as a point process with intensity:
 
-Intraday microstructure patterns
+[
+\lambda(t) = \mu + \alpha \sum_{t_i < t} e^{-\beta (t - t_i)}
+]
 
-Tab 2 — Technical Analysis
+Where:
 
-Candlestick + moving averages + shock markers
+- ( \mu ) — baseline shock rate
+- ( \alpha ) — excitation strength
+- ( \beta ) — decay rate
 
-Bollinger Bands strategy
+**Branching ratio**
 
-RSI momentum panel with volume
+[
+\frac{\alpha}{\beta}
+]
 
-Automated interpretation of current market state
+Expected number of shocks triggered by each shock.
 
-🧭 Interpretation Guide
-ConditionMeaningHigh VPIN + Rising λ(t)Informed traders driving shock clusterShock at Upper BB + RSI > 70Reversal short setupShock at Lower BB + RSI < 30Reversal long setupBB Squeeze + VPIN spikeBreakout brewingα/β > 1Highly self-exciting market regime
+Parameters are estimated via **maximum likelihood** using L-BFGS-B.
 
-🧩 Use Cases
+Log-likelihood:
 
-Quant research in market microstructure
+[
+\mathcal{L} = \sum_i \log \lambda(t_i) - \int_0^T \lambda(t),dt
+]
 
-Studying informed trading impact
+---
 
-Event clustering analysis
+### 3. VPIN — Volume-Synchronized Probability of Informed Trading
 
-Strategy validation around technical levels
+Each bar’s volume is split into estimated buy/sell volume using price location within the candle.
 
-Educational tool for Hawkes processes in finance
+Buckets are filled by fixed volume (V\_{bucket}).
 
-⚠️ Notes
+For each bucket:
 
-Uses 2-minute intraday data → computationally heavy
+[
+\text{Imbalance} = |V_{buy} - V_{sell}|
+]
 
-VPIN bucket size auto-adjusts to symbol volume
+VPIN over last (N) buckets:
 
-Works best on liquid instruments (indices, large caps)
+[
+VPIN = \frac{\sum_{i=1}^{N} |V_{buy,i} - V_{sell,i}|}{V_{bucket} \times N}
+]
 
-Not financial advice — research/educational tool
+Interpretation:
 
-📚 Concepts Referenced
+| VPIN    | Meaning                 |
+| ------- | ----------------------- |
+| < 0.3   | Balanced flow           |
+| 0.3–0.5 | Directional pressure    |
+| 0.5–0.7 | Informed trading likely |
+| > 0.7   | Extreme toxicity        |
 
-Hawkes (1971) self-exciting processes
+---
 
-VPIN (Easley, López de Prado)
+### 4. Technical Indicators
 
-Market microstructure theory
+- **SMA**: ( \text{SMA}\_n = \frac{1}{n} \sum P_t )
+- **EMA**: Exponentially weighted mean
+- **RSI**:
 
-Volatility clustering
+[
+RSI = 100 - \frac{100}{1 + RS}
+]
 
-Technical analysis
+- **Bollinger Bands**
 
-✅ Example Symbols to Try
-^GSPC (S&P 500)
-AAPL
-TSLA
-NVDA
-SPY
+[
+\text{Upper} = SMA + k\sigma, \quad
+\text{Lower} = SMA - k\sigma
+]
 
-🚀 Outcome
-This project bridges:
+- **ATR**: Average true range for volatility
 
-Stochastic processes + Order flow theory + Technical analysis
-into one unified, visual, interactive system.
+---
 
-It shows why markets move — not just how they look.
+## Dashboard Structure
+
+### Tab 1 — Hawkes + VPIN
+
+- Price with shock markers and scaled intensity
+- Inter-event time distribution
+- VPIN time series with toxicity levels
+- VPIN at shocks vs non-shocks
+- VPIN vs Hawkes intensity
+- Intraday toxicity patterns
+
+### Tab 2 — Technical Analysis
+
+- Candlestick with SMA/EMA and shock markers
+- Bollinger Bands with squeeze detection
+- RSI with volume
+- ATR context
+
+---
+
+## What to Observe
+
+- VPIN tends to rise before clusters of shocks
+- Shocks occur near Bollinger extremes and MAs
+- RSI extremes + shock → higher reversal probability
+- Market open/close show higher toxicity and shock frequency
+- High ( \alpha/\beta ) indicates clustered shock regimes
+
+---
+
+## Best Symbols to Try
+
+```
+^GSPC, SPY, AAPL, TSLA, NVDA
+```

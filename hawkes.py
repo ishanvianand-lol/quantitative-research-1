@@ -707,9 +707,7 @@ st.markdown("""
     text-align: center;
     padding: 8px 0;
     font-size: 14px;
-    opacity: 0.9;
-    background-color: white;
-    border-top: 1px solid #eaeaea;
+    background-color: black;
     z-index: 100;
 }
 </style>
