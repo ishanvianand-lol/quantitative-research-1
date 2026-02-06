@@ -49,15 +49,115 @@ def calculate_atr(data, period=14):
     
     return atr
 
-def calculate_ichimoku(high, low, close):
-    """Ichimoku Cloud Components"""
-    # HINT: You need 5 lines
-    # 1. Tenkan-sen (Conversion Line) = (9-period high + 9-period low)/2
-    # 2. Kijun-sen (Base Line) = (26-period high + 26-period low)/2
-    # 3. Senkou Span A = (Tenkan + Kijun)/2, shifted 26 periods forward
-    # 4. Senkou Span B = (52-period high + 52-period low)/2, shifted 26 periods forward
-    # 5. Chikou Span = Close, shifted 26 periods backward
-    pass  # YOU IMPLEMENT THIS
+def calculate_vpin(data, bucket_volume=50000, n_buckets=50):
+    close = data['Close'].values
+    open_price = data['Open'].values
+    low = data['Low'].values
+    high = data['High'].values
+    volume = data['Volume'].values
+    
+    n_bars = len(data)
+    buy_volume = np.zeros(n_bars)
+    sell_volume = np.zeros(n_bars)
+    
+    for i in range(n_bars):
+        if high[i] == low[i]:
+            if i > 0:
+                if close[i] > close[i-1]:
+                    buy_volume[i] = volume[i]
+                    sell_volume[i] = 0
+                elif close[i] < close[i-1]:
+                    buy_volume[i] = 0
+                    sell_volume[i] = volume[i]
+                else:
+                    buy_volume[i] = volume[i] / 2
+                    sell_volume[i] = volume[i] / 2
+            else:
+                buy_volume[i] = volume[i] / 2
+                sell_volume[i] = volume[i] / 2
+        else:
+            relative_close = (close[i] - low[i]) / (high[i] - low[i])
+            
+            if close[i] > open_price[i]:  # Bullish bar
+                buy_volume[i] = volume[i] * (0.5 + relative_close / 2)
+                sell_volume[i] = volume[i] - buy_volume[i]
+            elif close[i] < open_price[i]:  # Bearish bar
+                sell_volume[i] = volume[i] * (0.5 + (1 - relative_close) / 2)
+                buy_volume[i] = volume[i] - sell_volume[i]
+            else: # close == open (doji)
+                buy_volume[i] = volume[i] * relative_close
+                sell_volume[i] = volume[i] * (1 - relative_close)
+
+    buckets = []
+    current_bucket_buy = 0
+    current_bucket_sell = 0
+    current_bucket_volume = 0
+    
+    leftover_buy = 0
+    leftover_sell = 0
+    leftover_volume = 0
+
+    for i in range(n_bars):
+        bar_buy = buy_volume[i] + leftover_buy
+        bar_sell = sell_volume[i] + leftover_sell
+        bar_volume = volume[i] + leftover_volume
+        
+        leftover_buy = 0
+        leftover_sell = 0
+        leftover_volume = 0
+
+        if current_bucket_volume + bar_volume <= bucket_volume:
+            current_bucket_buy += bar_buy
+            current_bucket_sell += bar_sell
+            current_bucket_volume += bar_volume
+
+            if current_bucket_volume == bucket_volume:
+                buckets.append({
+                    'buy': current_bucket_buy,
+                    'sell': current_bucket_sell,
+                    'imbalance': abs(current_bucket_buy - current_bucket_sell),
+                    'end_index': i
+                })
+        else:
+            space_remaining = bucket_volume - current_bucket_volume
+            used = space_remaining / bar_volume
+
+            current_bucket_buy += bar_buy * used
+            current_bucket_sell += bar_sell * used
+            current_bucket_volume += space_remaining
+            
+            # Save completed bucket
+            buckets.append({
+                'buy': current_bucket_buy,
+                'sell': current_bucket_sell,
+                'imbalance': abs(current_bucket_buy - current_bucket_sell),
+                'end_index': i
+            })
+
+            leftover_buy = bar_buy * (1 - used)
+            leftover_sell = bar_sell * (1 - used)
+            leftover_volume = bar_volume - space_remaining
+            
+            current_bucket_buy = 0
+            current_bucket_sell = 0
+            current_bucket_volume = 0
+
+    vpin = np.full(n_bars, np.nan)
+
+    if len(buckets) >= n_buckets:
+        for i in range(n_buckets - 1, len(buckets)):
+            window = buckets[i - n_buckets + 1 : i + 1]
+
+            total_imbalance = sum(b['imbalance'] for b in window)
+            total_volume = bucket_volume * n_buckets
+
+            vpin_current = total_imbalance / total_volume
+            vpin[buckets[i]['end_index']] = vpin_current
+
+        vpinSeries = pd.Series(vpin, index = data.index)
+        vpinSeries = vpinSeries.ffill()
+
+    return vpinSeries
 
 def Hawkes_Process(parameters, events, T):
     mu, alpha, beta = parameters
@@ -99,11 +199,14 @@ def Hawkes_Fitting(events):
 st.set_page_config(layout="wide")
 
 with st.sidebar:
-    symbol = st.text_input("Ticker Symbol", value="^GSPC").upper()
-    k = st.slider("Shock Threshold", 1.0, 5.0, 2.0)
-    rolling_window = st.number_input("Rolling Window for Return Volatility", 20, 100, 50)
+    symbol = st.text_input("Ticker Symbol", 
+                           value="^GSPC").upper()
+    k = st.slider("Shock Threshold", 
+                  1.0, 5.0, 2.0)
+    rolling_window = st.number_input("Rolling Window for Return Volatility", 
+                                     20, 100, 50, step = 10)
 
-tab1, tab2 = st.tabs(["Hawkes Fitting with Toxic Flow", "Technical Indicators"])
+tab1, tab2 = st.tabs(["Hawkes Fitting with VPIN", "Technical Indicators"])
 
 sp500 = yf.download(tickers = symbol,
                     period = '60d',
@@ -141,7 +244,6 @@ event_times_float = np.where(sp500["Shock/Event"] == 1)[0].astype(float)
 for t in range(len(sp500)):
     past_events = event_times_float[event_times_float < t]
     lambda_t[t] = mu + alpha * np.sum(np.exp(-beta * (t - past_events)))
-
 
 with tab1:
     st.subheader("Model Parameters")
@@ -198,6 +300,142 @@ with tab1:
     expected_time_to_next = 1 / current_intensity if current_intensity > 0 else np.inf
     col1.metric("Current intensity", f"{current_intensity:.4f}")
     col2.metric("Expected time to next shock (periods)", f"{expected_time_to_next:.1f}")
+
+    # Volume Analysis
+    avg_vol = sp500['Volume'].mean()
+    total_vol = sp500['Volume'].sum()
+    
+    optimal_bucket = int(avg_vol * 7)  # 7 bars per bucket
+    sp500["VPIN"] = calculate_vpin(
+        data=sp500,
+        bucket_volume=optimal_bucket,
+        n_buckets=50
+    )
+
+    st.write("---")
+    st.subheader("VPIN - Toxicity Indicator")
+    
+    fig_vpin, ax_vpin = plt.subplots(figsize=(14, 4))
+    
+    ax_vpin.plot(sp500.index, sp500['VPIN'], 
+                 color='purple', linewidth=1.5, label='VPIN')
+    ax_vpin.axhline(0.3, color='yellow', linestyle='--', 
+                    alpha=0.7, label='Moderate (0.3)')
+    ax_vpin.axhline(0.5, color='orange', linestyle='--', 
+                    alpha=0.7, label='High (0.5)')
+    ax_vpin.axhline(0.7, color='red', linestyle='--', 
+                    alpha=0.7, label='Extreme (0.7)')
+    
+    # Mark Hawkes shocks on VPIN chart
+    shock_vpin = sp500['VPIN'][sp500['Shock/Event'] == 1]
+    ax_vpin.scatter(shock_vpin.index, shock_vpin.values, 
+                    color='red', s=50, zorder=5, label='Hawkes Shock')
+    
+    ax_vpin.set_ylabel("VPIN")
+    ax_vpin.set_xlabel("Date")
+    ax_vpin.set_title("VPIN: Volume-Synchronized Probability of Informed Trading")
+    ax_vpin.legend()
+    ax_vpin.grid(True, alpha=0.3)
+    ax_vpin.set_ylim(0, 1)
+    
+    st.pyplot(fig_vpin)
+    
+    # Metrics
+    col1, col2, col3 = st.columns(3)
+    current_vpin = sp500['VPIN'].iloc[-1]
+    avg_vpin = sp500['VPIN'].mean()
+    max_vpin = sp500['VPIN'].max()
+    
+    col1.metric("Current VPIN", f"{current_vpin:.3f}")
+    col2.metric("Average VPIN", f"{avg_vpin:.3f}")
+    col3.metric("Max VPIN", f"{max_vpin:.3f}")
+    
+    # Interpretation
+    if current_vpin < 0.3:
+        st.success("✅ Low toxicity - Balanced order flow")
+    elif current_vpin < 0.5:
+        st.warning("⚠️ Moderate toxicity - Some directional pressure")
+    elif current_vpin < 0.7:
+        st.error("🔥 High toxicity - Strong informed trading")
+    else:
+        st.error("🚨 EXTREME toxicity - One-sided flow!")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        
+        st.write("---")
+        st.subheader("🔬 VPIN-Hawkes Correlation Analysis")
+        # Calculate correlation
+        vpin_at_shocks = sp500.loc[sp500['Shock/Event'] == 1, 'VPIN']
+        vpin_no_shocks = sp500.loc[sp500['Shock/Event'] == 0, 'VPIN']
+
+        # Histogram comparison
+        fig_hist, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        
+        ax1.hist(vpin_at_shocks, bins=20, alpha=0.7, color='red', edgecolor='black', label='At Shocks')
+        ax1.hist(vpin_no_shocks, bins=20, alpha=0.5, color='blue', edgecolor='black', label='No Shocks')
+        ax1.set_xlabel("VPIN")
+        ax1.set_ylabel("Frequency")
+        ax1.set_title("VPIN Distribution: Shocks vs Normal")
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Scatter: VPIN vs Hawkes intensity
+        ax2.scatter(sp500['VPIN'], lambda_t, alpha=0.5, s=10, c='purple')
+        ax2.set_xlabel("VPIN")
+        ax2.set_ylabel("Hawkes Intensity λ(t)")
+        ax2.set_title("VPIN vs Hawkes Intensity")
+        ax2.grid(True, alpha=0.3)
+        
+        st.pyplot(fig_hist)
+        
+        col1i, col2i, col3i = st.columns(3)
+        col1i.metric("VPIN at Shocks (avg)", f"{vpin_at_shocks.mean():.3f}")
+        col2i.metric("VPIN without Shocks (avg)", f"{vpin_no_shocks.mean():.3f}")
+        col3i.metric("Difference", f"{(vpin_at_shocks.mean() - vpin_no_shocks.mean()):.3f}",
+                    delta=f"{((vpin_at_shocks.mean() / vpin_no_shocks.mean() - 1) * 100):.1f}%")
+        
+        if vpin_at_shocks.mean() > vpin_no_shocks.mean():
+            st.success("✅ VPIN is higher during Hawkes shocks - predictive power confirmed!")
+        else:
+            st.warning("⚠️ VPIN not clearly predictive of shocks")
+
+    with col2:
+        st.write("---")
+        st.subheader("⏰ Intraday VPIN Patterns (Microstructure)")
+        
+        # Extract hour from index
+        sp500['Hour'] = sp500.index.hour
+        
+        # Group by hour
+        vpin_by_hour = sp500.groupby('Hour')['VPIN'].mean()
+        shocks_by_hour = sp500.groupby('Hour')['Shock/Event'].sum()
+        
+        fig_hour, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+        
+        # VPIN by hour
+        ax1.bar(vpin_by_hour.index, vpin_by_hour.values, color='purple', alpha=0.7, edgecolor='black')
+        ax1.axhline(sp500['VPIN'].mean(), color='red', linestyle='--', label='Overall Avg')
+        ax1.set_ylabel("Average VPIN")
+        ax1.set_title("VPIN Toxicity by Hour of Day")
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Shocks by hour
+        ax2.bar(shocks_by_hour.index, shocks_by_hour.values, color='red', alpha=0.7, edgecolor='black')
+        ax2.set_xlabel("Hour of Day (EST)")
+        ax2.set_ylabel("Number of Shocks")
+        ax2.set_title("Hawkes Shocks by Hour of Day")
+        ax2.grid(True, alpha=0.3)
+        
+        st.pyplot(fig_hour)
+        
+        st.write("""
+        **Microstructure Insights:**
+        - Market open/close typically have higher VPIN (toxic flow)
+        - Mid-day often has lower VPIN (liquidity providers dominant)
+        - Compare VPIN patterns with shock clustering
+        """)
 
 with tab2:
     st.header("📈 Technical Analysis")
@@ -458,3 +696,27 @@ with tab2:
     - When Hawkes shocks occur at RSI extremes (>70 or <30) → High reversal probability
     - Current setup: {'⚠️ Shock + extreme RSI = reversal setup' if (current_rsi > 70 or current_rsi < 30) and lambda_t[-1] > mu*2 else '✅ Normal conditions'}
     """)
+
+st.markdown("""
+<style>
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 14px;
+    opacity: 0.9;
+    background-color: white;
+    border-top: 1px solid #eaeaea;
+    z-index: 100;
+}
+</style>
+
+<div class="footer">
+    © 2026 Ishanvi Anand ·
+    <a href="https://github.com/ishanvianand-lol/quantitative-research-1" target="_blank">GitHub</a> ·
+    <a href="https://linkedin.com/in/ishanvi-anand-a445a82b3" target="_blank">LinkedIn</a>
+</div>
+""", unsafe_allow_html=True)
