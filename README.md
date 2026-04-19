@@ -184,3 +184,4 @@ RSI = 100 - \frac{100}{1 + RS}
 ```
 ^GSPC, SPY, AAPL, TSLA, NVDA
 ```
+"Contribution by Ishanvi Anand" 
